@@ -1,0 +1,23 @@
+# Book Generation Configuration
+
+# Books to generate
+books:
+  - title: "Mastering Web Scraping with Laravel"
+    summary: "Comprehensive guide to building robust web scrapers using Laravel's ecosystem, including handling JavaScript-heavy sites, managing large-scale data extraction, and deploying production scrapers"
+    category: "framework_specific"
+
+  - title: "Building AI-Powered Applications with Python"
+    summary: "Practical guide to integrating LLMs, computer vision, and ML models into production Python applications, focusing on real-world use cases and deployment strategies"
+    category: "domain_specific"
+
+  - title: "Kubernetes Security Handbook"
+    summary: "Deep dive into securing Kubernetes clusters, implementing RBAC, network policies, secret management, and compliance in cloud-native environments"
+    category: "specialized_topic"
+
+  - title: "Full-Stack Next.js Development"
+    summary: null  # Test with no summary
+    category: "framework_specific"
+
+  - title: "Event-Driven Microservices with Kafka"
+    summary: "Architecture patterns and implementation strategies for building scalable event-driven systems using Apache Kafka, including event sourcing, CQRS, and saga patterns"
+    category: "architecture_pattern"
