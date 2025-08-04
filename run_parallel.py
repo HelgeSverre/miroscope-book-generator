@@ -6,11 +6,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
+import httpx
 import lilypad
 import yaml
 from dotenv import load_dotenv
 from lilypad import trace
 from mirascope.core import openai, prompt_template
+from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 from rich.console import Console
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
@@ -28,6 +30,15 @@ lilypad.configure(
     auto_llm=True,
 )
 
+# Configure async OpenAI client with connection pooling and timeouts
+limits = httpx.Limits(max_connections=100, max_keepalive_connections=20)
+timeout = httpx.Timeout(120.0, connect=5.0)
+http_client = httpx.AsyncClient(limits=limits, timeout=timeout)
+async_client = AsyncOpenAI(
+    api_key=os.environ.get("OPENAI_API_KEY"),
+    http_client=http_client,
+)
+
 # Set up logging to file
 log_dir = Path("logs")
 log_dir.mkdir(exist_ok=True)
@@ -38,12 +49,12 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
         logging.FileHandler(log_file),
-        # Remove StreamHandler to prevent console output
+
     ],
 )
 logger = logging.getLogger(__name__)
 
-# Also configure Lilypad and other libraries to use file logging
+# Also configure Lilypad and other libraries tosee https://mirascope.com/docs/mirascope/api/tools/system/file_system  use file logging
 for logger_name in ["lilypad", "httpx", "mirascope"]:
     lib_logger = logging.getLogger(logger_name)
     lib_logger.handlers = []  # Remove existing handlers
@@ -85,7 +96,12 @@ class BookOutlineStructure(BaseModel):
 
 # Mirascope prompt functions
 @trace(name="generate_outline", versioning="automatic")
-@openai.call(model="gpt-4o", call_params={"temperature": 0.7}, json_mode=True)
+@openai.call(
+    model="gpt-4o",
+    client=async_client,
+    call_params={"temperature": 0.7, "timeout": 120},
+    json_mode=True,
+)
 @prompt_template(
     """
     You are a senior technical editor at Packt Publishing creating a book outline.
@@ -130,7 +146,11 @@ async def generate_outline(book_title: str, context: str): ...
 
 
 @trace(name="generate_initial_chapter_draft", versioning="automatic")
-@openai.call(model="gpt-4o", call_params={"temperature": 0.8, "max_tokens": 4000})
+@openai.call(
+    model="gpt-4o",
+    client=async_client,
+    call_params={"temperature": 0.8, "max_tokens": 4000, "timeout": 180},
+)
 @prompt_template(
     """
     You are writing Chapter {chapter_number}: {chapter_title} for the technical book "{book_title}".
@@ -160,7 +180,11 @@ async def generate_initial_chapter_draft(
 
 
 @trace(name="refine_chapter_with_context", versioning="automatic")
-@openai.call(model="gpt-4o", call_params={"temperature": 0.5, "max_tokens": 4000})
+@openai.call(
+    model="gpt-4o",
+    client=async_client,
+    call_params={"temperature": 0.5, "max_tokens": 4000, "timeout": 180},
+)
 @prompt_template(
     """
     Refine Chapter {chapter_number}: {chapter_title} to ensure consistency with surrounding chapters.
@@ -194,7 +218,9 @@ async def refine_chapter_with_context(
 
 
 @trace(name="summarize_chapter", versioning="automatic")
-@openai.call(model="gpt-4o", call_params={"temperature": 0.3})
+@openai.call(
+    model="gpt-4o", client=async_client, call_params={"temperature": 0.3, "timeout": 60}
+)
 @prompt_template(
     """
     Create a brief summary (2-3 paragraphs) of this chapter's key concepts and learnings:
@@ -814,7 +840,7 @@ def load_books_from_config(config_path: Path = Path("config.yml")) -> List[dict]
         config = yaml.safe_load(f)
 
     books = []
-    for book in config.get("test_books", []):
+    for book in config.get("books", []):
         # Handle null summary
         if book.get("summary") is None:
             book["summary"] = f"A comprehensive guide to {book['title']}"

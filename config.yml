@@ -1,6 +1,3 @@
-# Book Generation Configuration
-
-# Books to generate
 books:
   - title: "Mastering Web Scraping with Laravel"
     summary: "Comprehensive guide to building robust web scrapers using Laravel's ecosystem, including handling JavaScript-heavy sites, managing large-scale data extraction, and deploying production scrapers"
