@@ -18,7 +18,7 @@ from rich.console import Console
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 from rich.panel import Panel
-from rich.layout import Layout
+from logging_config import setup_logging
 
 load_dotenv()
 console = Console()
@@ -39,27 +39,9 @@ async_client = AsyncOpenAI(
     http_client=http_client,
 )
 
-# Set up logging to file
-log_dir = Path("logs")
-log_dir.mkdir(exist_ok=True)
-log_file = log_dir / f"book_generation_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler(log_file),
-
-    ],
-)
+# Set up comprehensive logging
+progress_logger = setup_logging()
 logger = logging.getLogger(__name__)
-
-# Also configure Lilypad and other libraries tosee https://mirascope.com/docs/mirascope/api/tools/system/file_system  use file logging
-for logger_name in ["lilypad", "httpx", "mirascope"]:
-    lib_logger = logging.getLogger(logger_name)
-    lib_logger.handlers = []  # Remove existing handlers
-    lib_logger.addHandler(logging.FileHandler(log_file))
-    lib_logger.setLevel(logging.INFO)
 
 
 # Data models
@@ -268,7 +250,15 @@ class ParallelTechnicalBookGenerator:
                 span.metadata(self.trace_metadata)
 
                 console.print(
-                    "\n[bold blue]📋 Phase 1/4: Generating book outline...[/bold blue]"
+                    Panel.fit(
+                        "📋 Phase 1/4: Generating book outline", style="bold blue"
+                    )
+                )
+                progress_logger.start_operation(
+                    "outline_generation",
+                    f"Generating outline for: {self.book_title}",
+                    book_title=self.book_title,
+                    category=self.category,
                 )
 
                 response = await generate_outline(
@@ -323,6 +313,12 @@ class ParallelTechnicalBookGenerator:
                 # Save outline
                 self.save_outline()
                 console.print("[green]✓ Outline generated and saved![/green]")
+                progress_logger.complete_operation(
+                    "outline_generation",
+                    "Outline generation completed",
+                    parts=len(self.book.parts),
+                    chapters=sum(len(part.chapters) for part in self.book.parts),
+                )
 
                 span.log(
                     f"Outline generated successfully with {total_chapters} chapters across {len(parts)} parts"
@@ -400,7 +396,15 @@ class ParallelTechnicalBookGenerator:
         try:
             with lilypad.span("parallel_drafts_generation") as span:
                 console.print(
-                    "\n[bold blue]📝 Phase 2/4: Generating initial chapter drafts in parallel...[/bold blue]"
+                    Panel.fit(
+                        "📝 Phase 2/4: Generating initial chapter drafts in parallel",
+                        style="bold blue",
+                    )
+                )
+                progress_logger.start_operation(
+                    "draft_generation",
+                    "Starting parallel chapter draft generation",
+                    total_chapters=sum(len(part.chapters) for part in self.book.parts),
                 )
 
                 # Flatten all chapters
@@ -449,6 +453,13 @@ class ParallelTechnicalBookGenerator:
                             console.print(
                                 f"  [green]✓ Chapter {chapter.number} draft completed[/green]"
                             )
+                            progress_logger.update_progress(
+                                "draft_generation",
+                                f"Chapter {chapter.number} draft completed",
+                                chapter_number=chapter.number,
+                                chapter_title=chapter.title,
+                                content_length=len(chapter.draft_content or ""),
+                            )
 
                     # Generate all drafts concurrently
                     await asyncio.gather(
@@ -471,6 +482,11 @@ class ParallelTechnicalBookGenerator:
         self, part: BookPart, chapter: Chapter, prev_summary: str, next_title: str
     ) -> str:
         """Refine a chapter with context from surrounding chapters"""
+        start_time = datetime.now()
+        logger.info(
+            f"Starting refinement for Chapter {chapter.number}: {chapter.title}"
+        )
+
         try:
             with lilypad.span("chapter_refinement") as span:
                 refinement_metadata = {
@@ -536,7 +552,16 @@ class ParallelTechnicalBookGenerator:
         try:
             with lilypad.span("sequential_refinement") as span:
                 console.print(
-                    "\n[bold blue]🔧 Phase 3/4: Refining chapters with contextual awareness...[/bold blue]"
+                    Panel.fit(
+                        "🔧 Phase 3/4: Refining chapters with contextual awareness",
+                        style="bold blue",
+                    )
+                )
+                progress_logger.complete_operation(
+                    "draft_generation", "All chapter drafts generated"
+                )
+                progress_logger.start_operation(
+                    "refinement", "Starting chapter refinement phase"
                 )
 
                 total_chapters = sum(len(part.chapters) for part in self.book.parts)
@@ -564,7 +589,13 @@ class ParallelTechnicalBookGenerator:
 
                     for part_idx, part in enumerate(self.book.parts):
                         console.print(
-                            f"\n[cyan]Refining Part {part.number}: {part.title}[/cyan]"
+                            f"[cyan]Refining Part {part.number}: {part.title}[/cyan]"
+                        )
+                        progress_logger.update_progress(
+                            "refinement",
+                            f"Refining Part {part.number}: {part.title}",
+                            part_number=part.number,
+                            chapters_in_part=len(part.chapters),
                         )
 
                         for chapter_idx, chapter in enumerate(part.chapters):
@@ -596,6 +627,13 @@ class ParallelTechnicalBookGenerator:
                             progress.advance(task)
                             console.print(
                                 f"  [green]✓ Chapter {chapter.number} refined[/green]"
+                            )
+                            progress_logger.update_progress(
+                                "refinement",
+                                f"Chapter {chapter.number} refined",
+                                chapter_number=chapter.number,
+                                draft_length=len(chapter.draft_content or ""),
+                                refined_length=len(chapter.content or ""),
                             )
 
                     span.log(
@@ -674,7 +712,11 @@ class ParallelTechnicalBookGenerator:
         try:
             with lilypad.span("book_compilation") as span:
                 console.print(
-                    "\n[bold blue]📖 Phase 4/4: Compiling full book...[/bold blue]"
+                    Panel.fit("📖 Phase 4/4: Compiling full book", style="bold blue")
+                )
+                progress_logger.complete_operation("refinement", "All chapters refined")
+                progress_logger.start_operation(
+                    "compilation", "Compiling complete book"
                 )
 
                 full_book_path = (
@@ -741,6 +783,12 @@ class ParallelTechnicalBookGenerator:
                         f.write(f"- {tech}\n")
 
                 console.print(f"[green]✓ Book compiled to: {full_book_path}[/green]")
+                progress_logger.complete_operation(
+                    "compilation",
+                    "Book compilation completed",
+                    output_path=str(full_book_path),
+                    total_size=len(full_content),
+                )
                 span.log(f"Book compilation completed successfully: {full_book_path}")
 
         except Exception as e:
@@ -758,12 +806,13 @@ class ParallelTechnicalBookGenerator:
         try:
             with lilypad.span("complete_book_generation") as span:
                 console.print(
-                    f"\n[bold]🚀 Generating Technical Book (Parallel): {self.book_title}[/bold]\n"
+                    Panel.fit(
+                        f"🚀 Generating Technical Book (Parallel): {self.book_title}\n"
+                        f"Max concurrent generations: {self.max_concurrent}\n"
+                        f"Logs directory: logs/",
+                        style="bold",
+                    )
                 )
-                console.print(
-                    f"[dim]Max concurrent generations: {self.max_concurrent}[/dim]"
-                )
-                console.print(f"[dim]Logs are being written to: {log_file}[/dim]\n")
 
                 # Update metadata with generation start
                 generation_metadata = {
@@ -805,9 +854,26 @@ class ParallelTechnicalBookGenerator:
                 }
                 span.metadata(final_metadata)
 
-                console.print("\n[bold green]✨ Book generation complete![/bold green]")
-                console.print(f"📁 Output directory: {self.output_dir}")
-                console.print(f"⏱️  Total time: {total_duration:.1f} seconds")
+                console.print(
+                    Panel.fit(
+                        "[bold green]✨ Book generation complete![/bold green]\n"
+                        f"📁 Output directory: {self.output_dir}\n"
+                        f"⏱️  Total time: {total_duration:.1f} seconds",
+                        style="green",
+                    )
+                )
+                progress_logger.log_summary(
+                    "Book Generation Complete",
+                    {
+                        "Title": self.book_title,
+                        "Output Directory": str(self.output_dir),
+                        "Total Duration": f"{total_duration:.1f}s",
+                        "Parts": len(self.book.parts),
+                        "Total Chapters": sum(
+                            len(part.chapters) for part in self.book.parts
+                        ),
+                    },
+                )
 
                 span.log(
                     f"Book generation completed successfully in {total_duration:.1f} seconds with {total_chapters} chapters"
@@ -871,7 +937,7 @@ def display_book_overview(books: List[dict]):
         )
 
     console.print(table)
-    console.print(f"\n[bold]Total books to generate: {len(books)}[/bold]\n")
+    console.print(f"[bold]Total books to generate: {len(books)}[/bold]")
 
 
 # Usage
@@ -909,12 +975,21 @@ async def main():
                 category = book_config.get("category", "unknown")
                 max_concurrent = 5
 
-                console.print(f"\n{'=' * 80}")
-                console.print(f"[bold cyan]📚 Book {idx} of {len(books)}[/bold cyan]")
-                console.print(f"[bold]Title:[/bold] {book_title}")
-                console.print(f"[bold]Category:[/bold] {category}")
-                console.print(f"[bold]Status:[/bold] 🔄 Starting generation...")
-                console.print(f"{'=' * 80}\n")
+                console.print(
+                    Panel.fit(
+                        f"[bold cyan]📚 Book {idx} of {len(books)}[/bold cyan]\n"
+                        f"[bold]Title:[/bold] {book_title}\n"
+                        f"[bold]Category:[/bold] {category}\n"
+                        f"[bold]Status:[/bold] 🔄 Starting generation...",
+                        border_style="cyan",
+                    )
+                )
+                progress_logger.start_operation(
+                    f"book_{idx}",
+                    f"Starting book {idx}: {book_title}",
+                    book_index=idx,
+                    total_books=len(books),
+                )
 
                 try:
                     with lilypad.span(f"book_generation_{idx}") as book_span:
@@ -956,10 +1031,19 @@ async def main():
                         )
 
                         console.print(
-                            f"\n[bold green]✅ Book {idx} completed successfully![/bold green]"
+                            Panel.fit(
+                                f"[bold green]✅ Book {idx} completed successfully![/bold green]\n"
+                                f"Chapters: {book_chapters}\n"
+                                f"Duration: {book_duration:.1f}s",
+                                style="green",
+                            )
                         )
-                        console.print(f"   Chapters: {book_chapters}")
-                        console.print(f"   Duration: {book_duration:.1f}s")
+                        progress_logger.complete_operation(
+                            f"book_{idx}",
+                            f"Book {idx} completed: {book_title}",
+                            chapters=book_chapters,
+                            duration=book_duration,
+                        )
 
                 except Exception as e:
                     logger.error(f"Failed to generate book '{book_title}': {str(e)}")
@@ -967,13 +1051,22 @@ async def main():
                         {"title": book_title, "error": str(e), "category": category}
                     )
                     console.print(
-                        f"\n[bold red]❌ Book {idx} failed: {str(e)}[/bold red]"
+                        Panel.fit(
+                            f"[bold red]❌ Book {idx} failed: {str(e)}[/bold red]",
+                            style="red",
+                        )
+                    )
+                    progress_logger.log_error(
+                        f"book_{idx}",
+                        e,
+                        f"Failed to generate book {idx}: {book_title}",
+                        book_title=book_title,
+                        category=category,
                     )
 
             # Display final summary
             total_duration = (datetime.now() - start_time).total_seconds()
 
-            console.print(f"\n{'=' * 80}")
             console.print(Panel.fit("📊 Generation Summary", style="bold green"))
 
             summary_table = Table(show_header=True, header_style="bold")
@@ -994,20 +1087,34 @@ async def main():
 
             # List successful books
             if successful_books:
-                console.print("\n[bold green]✅ Successfully Generated:[/bold green]")
+                console.print("[bold green]✅ Successfully Generated:[/bold green]")
                 for book in successful_books:
-                    console.print(f"   • {book['title']}")
-                    console.print(f"     📁 {book['output_dir']}")
                     console.print(
+                        f"   • {book['title']}\n"
+                        f"     📁 {book['output_dir']}\n"
                         f"     📊 {book['chapters']} chapters in {book['duration']:.1f}s"
                     )
 
             # List failed books
             if failed_books:
-                console.print("\n[bold red]❌ Failed Books:[/bold red]")
+                console.print("[bold red]❌ Failed Books:[/bold red]")
                 for book in failed_books:
-                    console.print(f"   • {book['title']} ({book['category']})")
-                    console.print(f"     Error: {book['error']}")
+                    console.print(
+                        f"   • {book['title']} ({book['category']})\n"
+                        f"     Error: {book['error']}"
+                    )
+
+            progress_logger.log_summary(
+                "Generation Session Complete",
+                {
+                    "Total Books": len(books),
+                    "Successful": len(successful_books),
+                    "Failed": len(failed_books),
+                    "Total Duration": f"{span.duration_seconds:.1f}s"
+                    if hasattr(span, "duration_seconds")
+                    else "N/A",
+                },
+            )
 
             span.metadata(
                 {

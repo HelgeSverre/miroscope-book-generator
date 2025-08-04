@@ -57,6 +57,7 @@ run:
 	@echo "📚 Reading books from config.yml..."
 	uv run python run_parallel.py
 
+
 # Check code with ruff (without fixing)
 .PHONY: check
 check:
@@ -74,6 +75,17 @@ fix:
 clean:
 	@echo "🧹 Cleaning generated books..."
 	rm -rf generated_books/
+
+# Clean logs
+.PHONY: clean-logs
+clean-logs:
+	@echo "📜 Cleaning logs..."
+	rm -rf logs/
+
+# Clean all generated files and logs
+.PHONY: clean-all
+clean-all: clean clean-logs
+	@echo "✨ All generated files and logs cleaned!"
 
 # Development workflow - format and run
 .PHONY: dev
@@ -97,6 +109,8 @@ help:
 	@echo "  make check   - Check code with ruff (no fixes)"
 	@echo "  make fix     - Fix code issues with ruff"
 	@echo "  make clean   - Remove generated books"
+	@echo "  make clean-logs - Remove log files"
+	@echo "  make clean-all - Remove all generated files and logs"
 	@echo "  make dev     - Format and run (for development)"
 	@echo "  make full    - Full workflow: install, format, run"
 	@echo "  make help    - Show this help message"

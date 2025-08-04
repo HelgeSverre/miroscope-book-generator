@@ -1,7 +1,14 @@
 # Book Generator with Mirascope
 
-An asynchronous Python tool that generates technical books using OpenAI's GPT-4 with parallel processing and
-context-aware refinement.
+An advanced technical book generation system built with Mirascope, featuring asynchronous parallel processing with comprehensive logging and quality assurance.
+
+## Features
+
+### ⚡ Performance Optimizations
+- Parallel chapter generation
+- Async file operations
+- Connection pooling for API calls
+- Smart retry mechanisms
 
 ## Installation
 
@@ -35,18 +42,19 @@ make pip-install
 ```bash
 # Run the generator
 make run
-
 # Or directly
 python run_parallel.py
 ```
 
-## Output
+## Output Structure
 
-Generated books are saved in `generated_books/` with:
-
-- `outline.md` - Table of contents
-- `part_N/` - Chapter drafts and final versions
-- `*_full.md` - Complete compiled book
+```
+generated_books/
+├── book_name/
+│   ├── outline.md              # Table of contents
+│   ├── part_N/                 # Chapter drafts and final versions
+│   └── book_name_full.md       # Complete compiled book
+```
 
 ## Development
 
@@ -55,3 +63,15 @@ make check   # Check code quality
 make format  # Format code
 make clean   # Remove generated books
 ```
+
+## Key Features
+
+- **Parallel Processing**: Generate multiple chapters simultaneously
+- **Smart Retry Logic**: Robust error handling with exponential backoff  
+- **Comprehensive Logging**: Detailed file and console logging with progress tracking
+- **Connection Pooling**: Optimized HTTP client configuration
+- **Context-Aware Refinement**: Chapters refined with awareness of surrounding content
+
+## License
+
+MIT
